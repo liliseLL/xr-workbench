@@ -3,6 +3,7 @@
   "short_name": "小R工作台",
   "description": "学习+备考+家教+生活一体化工作台",
   "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#f0f2f5",
   "theme_color": "#667eea",

@@ -600,7 +600,7 @@ button{cursor:pointer;border:none;background:none}
 </div>
 </div>
 <div class="card text-center text-xs text-muted">
-小R工作台 v5.1<br>学习+备考+家教+生活一体化<br>数据存储在本地浏览器
+小R工作台 v5.2<br>学习+备考+家教+生活一体化<br>数据存储在本地浏览器
 </div>
 </div>
 
@@ -853,12 +853,14 @@ $('#calGrid').innerHTML=html;
 // Selected date events
 let evs=getEventsForDate(calSelDate);
 $('#calSelDate').textContent=fmtDate(calSelDate)+' 日程';
-$('#calEvents').innerHTML=evs.length?evs.map(e=>`
-<div class="timeline-block" style="background:var(--bg)">
+let recurLabels={daily:'每日',weekly:'每周',biweekly:'双周',monthly:'每月',weekdays:'工作日',none:''};
+$('#calEvents').innerHTML=evs.length?evs.map(e=>{
+let c={course:'#667eea',tutoring:'#00b894',deadline:'#e74c3c',routine:'#a29bfe',exam:'#fd79a8'}[e.type]||'#999';
+return`<div class="timeline-block" style="background:var(--bg);cursor:pointer;border-left:3px solid ${c};padding-left:10px" onclick="editEvent('${e.id}')">
 <div class="timeline-time">${e.time||'全天'}</div>
-<div class="timeline-content">${escapeHtml(e.title)} ${e.recurring!=='none'?`<span class="tag">${{daily:'每日',weekly:'每周',biweekly:'双周',monthly:'每月'}[e.recurring]||''}</span>`:''}</div>
-<button class="btn btn-sm" style="color:#e74c3c;padding:2px 6px" onclick="delEvent('${e.id}')">✕</button>
-</div>`).join(''):'<div class="empty">该日无日程</div>';
+<div class="timeline-content">${escapeHtml(e.title)} ${e.recurring!=='none'?`<span class="tag" style="background:${c}20;color:${c}">${recurLabels[e.recurring]||''}</span>`:''}${e.note?`<span class="tag">${escapeHtml(e.note)}</span>`:''}</div>
+<button class="btn btn-sm" style="color:#e74c3c;padding:2px 6px" onclick="event.stopPropagation();delEvent('${e.id}')">✕</button>
+</div>`}).join(''):'<div class="empty">该日无日程</div>';
 renderTimeline();
 }
 function selectCalDate(d){calSelDate=d;renderCalendar()}
@@ -869,6 +871,7 @@ return events.filter(e=>{
 if(e.recurring==='none')return e.date===ds;
 if(e.recurring==='daily')return true;
 if(e.recurring==='weekly')return new Date(ds).getDay()===e.day;
+if(e.recurring==='weekdays'){let base=e.startDate?new Date(e.startDate):new Date(e.date);let diff=Math.floor((dt-base)/86400000);if(diff<0)return false;let dow=new Date(ds).getDay();if(dow===0||dow===6)return false;return diff%2===0;}
 if(e.recurring==='biweekly'){let base=e.startDate?new Date(e.startDate):new Date(e.date);let diff=Math.floor((dt-base)/86400000);return diff>=0&&diff%14===0}
 if(e.recurring==='monthly')return dt.getDate()===(e.monthDay||1);
 return e.date===ds;
@@ -920,6 +923,7 @@ openModal(`
 <option value="weekly">每周</option>
 <option value="biweekly">每两周</option>
 <option value="monthly">每月</option>
+<option value="weekdays">间隔一天（周末除外）</option>
 </select>
 <div class="label">备注（如：四年级英语）</div>
 <input class="input mb-3" id="evNote" placeholder="年级/科目等">
@@ -928,13 +932,53 @@ openModal(`
 }
 function addEvent(){
 let t=$('#evTitle').value.trim();if(!t){toast('请输入标题');return}
-let ev={id:uid(),title:t,date:$('#evDate').value,time:$('#evTime').value,type:$('#evType').value,recurring:$('#evRecur').value};
+let ev={id:uid(),title:t,date:$('#evDate').value,time:$('#evTime').value,type:$('#evType').value,recurring:$('#evRecur').value,note:'',color:''};
 if(ev.recurring==='weekly'){ev.day=new Date(ev.date).getDay()}
 if(ev.recurring==='biweekly'){ev.startDate=ev.date}
 let note=$('#evNote').value.trim();
-if(note){ev.meta={grade:note}}
+if(note){ev.note=note}
 let events=DB.get('events',DEFAULT_EVENTS);events.push(ev);DB.set('events',events);
 closeModal();renderCalendar();toast('已添加');
+}
+function editEvent(id){
+let events=DB.get('events',DEFAULT_EVENTS);let e=events.find(x=>x.id===id);if(!e)return;
+let recOpts=['none','daily','weekly','biweekly','monthly','weekdays'];
+let recLabels={'none':'不重复','daily':'每日','weekly':'每周','biweekly':'每两周','monthly':'每月','weekdays':'间隔一天（周末除外）'};
+openModal(`
+<div class="modal-title">编辑日程 <span class="modal-close" onclick="closeModal()">✕</span></div>
+<div class="label">标题</div>
+<input class="input mb-2" id="evTitle" value="${escapeHtml(e.title)}">
+<div class="row mb-2">
+<div><div class="label">日期</div><input class="input" type="date" id="evDate" value="${e.date||e.startDate||calSelDate}"></div>
+<div><div class="label">时间</div><input class="input" type="time" id="evTime" value="${e.time||''}"></div>
+</div>
+<div class="label">类型</div>
+<select class="input mb-2" id="evType">
+<option value="course" ${e.type==='course'?'selected':''}>课程</option>
+<option value="tutoring" ${e.type==='tutoring'?'selected':''}>家教</option>
+<option value="deadline" ${e.type==='deadline'?'selected':''}>截止日</option>
+<option value="routine" ${e.type==='routine'?'selected':''}>周期提醒</option>
+<option value="exam" ${e.type==='exam'?'selected':''}>考试</option>
+</select>
+<div class="label">重复</div>
+<select class="input mb-2" id="evRecur">${recOpts.map(o=>`<option value="${o}" ${e.recurring===o?'selected':''}>${recLabels[o]}</option>`).join('')}</select>
+<div class="label">备注</div>
+<input class="input mb-3" id="evNote" placeholder="如：四年级/第3章" value="${escapeHtml(e.note||'')}">
+<button class="btn btn-primary" style="width:100%" onclick="saveEvent('${e.id}')">保存</button>
+`);
+}
+function saveEvent(id){
+let t=$('#evTitle').value.trim();if(!t){toast('请输入标题');return}
+let events=DB.get('events',DEFAULT_EVENTS);let idx=events.findIndex(x=>x.id===id);
+if(idx===-1)return;
+let ev=events[idx];
+ev.title=t;ev.date=$('#evDate').value;ev.time=$('#evTime').value;
+ev.type=$('#evType').value;ev.recurring=$('#evRecur').value;
+ev.note=$('#evNote').value.trim();
+if(ev.recurring==='weekly'){ev.day=new Date(ev.date).getDay()}
+if(ev.recurring==='biweekly'||ev.recurring==='weekdays'){ev.startDate=ev.date}
+events[idx]=ev;DB.set('events',events);
+closeModal();renderCalendar();toast('已保存');
 }
 function delEvent(id){let events=DB.get('events',DEFAULT_EVENTS);events=events.filter(e=>e.id!==id);DB.set('events',events);renderCalendar();toast('已删除')}
 
@@ -1574,9 +1618,34 @@ const STORAGE_CATS=['衣服','裤装','鞋靴','包袋','护肤品','化妆品',
 function renderStorage(){
 let items=DB.get('storageItems',[]);
 let cats=STORAGE_CATS;
+let todayStr=today();
+// Sort: expired items first, then by newest
+items.sort((a,b)=>{
+let aExp=!!(a.expiry&&a.expiry<todayStr);
+let bExp=!!(b.expiry&&b.expiry<todayStr);
+if(aExp&&!bExp)return -1;
+if(!aExp&&bExp)return 1;
+return (a.createdAt||'')<(b.createdAt||'')?1:-1;
+});
 $('#storageFilter').innerHTML=`<span class="tag tag-filter ${curStorageCat===''?'active':''}" onclick="curStorageCat='';renderStorage()">全部(${items.length})</span>`+cats.map(c=>{let n=items.filter(i=>i.cat===c).length;return`<span class="tag tag-filter ${curStorageCat===c?'active':''}" onclick="curStorageCat='${c}';renderStorage()">${c}(${n})</span>`}).join('');
 let filtered=curStorageCat?items.filter(i=>i.cat===curStorageCat):items;
-$('#storageList').innerHTML=filtered.length?filtered.map(i=>`<div class="task-item"><div class="task-content"><div class="task-title">${escapeHtml(i.name)}</div><div class="task-meta">${i.cat} · ${i.location||''} · ${i.note||''}</div></div><button class="btn btn-sm" style="color:#e74c3c;padding:2px 6px" onclick="delStorage('${i.id}')">✕</button></div>`).join(''):'<div class="empty">暂无物品</div>';
+$('#storageList').innerHTML=filtered.length?filtered.map(i=>{
+let isExpired=i.expiry&&i.expiry<todayStr;
+let daysSince=Math.floor((new Date(todayStr)-new Date(i.createdAt||i.expiry||todayStr))/86400000)+1;
+let dailyCost=i.price&&daysSince>0?(i.price/daysSince).toFixed(2):'';
+let badge='';
+if(isExpired)badge='<span class="tag" style="background:#e74c3c;color:#fff;font-weight:600">⚠ 已过期</span>';
+else if(i.expiry){let daysLeft=Math.floor((new Date(i.expiry)-new Date(todayStr))/86400000);if(daysLeft<=7)badge=`<span class="tag" style="background:#f39c12;color:#fff">${daysLeft}天后到期</span>`;}
+return`<div class="task-item" style="${isExpired?'background:rgba(231,76,60,.05);border-radius:8px;padding:10px':''}">
+<div class="task-content">
+<div class="task-title">${escapeHtml(i.name)} ${badge}
+${i.price?`<span class="tag" style="background:var(--c-save)20;color:var(--c-save)">¥${i.price}</span>`:''}
+${dailyCost?`<span class="tag">日均¥${dailyCost}</span>`:''}
+</div>
+<div class="task-meta">${i.cat} · ${i.location||''} · ${i.note||''}${i.expiry?` · 保质至${(i.expiry)}`:''}${i.createdAt?` · 已用${daysSince}天`:''}</div>
+</div>
+<button class="btn btn-sm" style="color:#e74c3c;padding:2px 6px" onclick="delStorage('${i.id}')">✕</button>
+</div>`}).join(''):'<div class="empty">暂无物品</div>';
 let skincare=DB.get('skincareItems',[]);
 $('#skincareList').innerHTML=skincare.length?skincare.map(s=>{
 let opened=new Date(s.openDate);let used=Math.floor((new Date()-opened)/86400000);let pct=Math.min(used/s.totalDays*100,100);
@@ -1590,6 +1659,10 @@ openModal(`
 <input class="input mb-2" id="stName" placeholder="物品名称">
 <div class="label">分类</div>
 <select class="input mb-2" id="stCat">${STORAGE_CATS.map(c=>`<option>${c}</option>`).join('')}</select>
+<div class="row mb-2">
+<div><div class="label">购买价格（元）</div><input class="input" type="number" id="stPrice" placeholder="可选" step="0.01" min="0"></div>
+<div><div class="label">保质期截止日</div><input class="input" type="date" id="stExpiry" value=""></div>
+</div>
 <div class="label">存放位置</div>
 <input class="input mb-2" id="stLoc" placeholder="如：衣柜上层/鞋柜">
 <div class="label">备注</div>
@@ -1597,7 +1670,17 @@ openModal(`
 <button class="btn btn-primary" style="width:100%" onclick="addStorage()">添加</button>
 `);
 }
-function addStorage(){let n=$('#stName').value.trim();if(!n){toast('请输入名称');return}let items=DB.get('storageItems',[]);items.push({id:uid(),name:n,cat:$('#stCat').value,location:$('#stLoc').value.trim(),note:$('#stNote').value.trim()});DB.set('storageItems',items);closeModal();renderStorage();toast('已添加')}
+function addStorage(){
+let n=$('#stName').value.trim();if(!n){toast('请输入名称');return}
+let price=parseFloat($('#stPrice').value)||0;
+let expiry=$('#stExpiry').value||'';
+let items=DB.get('storageItems',[]);
+items.push({
+id:uid(),name:n,cat:$('#stCat').value,location:$('#stLoc').value.trim(),
+note:$('#stNote').value.trim(),price:price,expiry:expiry,createdAt:today()
+});
+DB.set('storageItems',items);closeModal();renderStorage();toast('已添加');
+}
 function delStorage(id){let items=DB.get('storageItems',[]);items=items.filter(i=>i.id!==id);DB.set('storageItems',items);renderStorage();toast('已删除')}
 function showSkincareModal(){
 openModal(`
@@ -1619,29 +1702,29 @@ function delSkincare(id){let items=DB.get('skincareItems',[]);items=items.filter
 // ===== Jobs =====
 let jobProvince='',jobType='',jobSearchText='';
 const DEFAULT_JOBS=[
-{id:'j1',company:'江苏烟草专卖局',position:'办事员',province:'江苏',type:'央国企',location:'南京/扬州等',major:'不限专业',requirement:'本科及以上',count:124,exam:'行测+申论',deadline:'2026-10-15',match:5,status:'收藏',url:'https://www.tobacco.gov.cn'},
-{id:'j2',company:'凤凰新华书店',position:'渠道拓展专员',province:'江苏',type:'央国企',location:'南京',major:'汉语言文学优先',requirement:'本科',count:8,exam:'笔试+面试',deadline:'2026-09-30',match:5,status:'收藏',url:'https://www.jspph.com'},
-{id:'j3',company:'中国化学工程十四建',position:'行政党建岗',province:'江苏',type:'央国企',location:'南京',major:'汉语言文学/新闻等',requirement:'本科',count:5,exam:'行测+申论+面试',deadline:'2026-10-20',match:5,status:'收藏',url:'https://www.cncec14.com'},
-{id:'j4',company:'江苏有线',position:'文字文员',province:'江苏',type:'央国企',location:'淮安金湖',major:'汉语言文学',requirement:'本科',count:2,exam:'笔试+面试',deadline:'2026-10-10',match:4,status:'收藏',url:'https://www.jscn.net.cn'},
-{id:'j5',company:'南京师大附中',position:'语文教师',province:'江苏',type:'教师',location:'南京',major:'汉语言文学师范',requirement:'本科+教资',count:3,exam:'试讲+面试',deadline:'2027-03-15',match:5,status:'收藏',url:'https://www.nsfz.net'},
+{id:'j1',company:'江苏烟草专卖局',position:'办事员',province:'江苏',type:'央国企',location:'南京/扬州等',major:'不限专业',requirement:'本科及以上',count:124,exam:'行测+申论',deadline:'2026-10-15',match:5,status:'收藏',url:'https://jsyc.ksbm.com/'},
+{id:'j2',company:'凤凰新华书店',position:'渠道拓展专员',province:'江苏',type:'央国企',location:'南京',major:'汉语言文学优先',requirement:'本科',count:8,exam:'笔试+面试',deadline:'2026-09-30',match:5,status:'收藏',url:'http://www.ppmg.cn/'},
+{id:'j3',company:'中国化学工程十四建',position:'行政党建岗',province:'江苏',type:'央国企',location:'南京',major:'汉语言文学/新闻等',requirement:'本科',count:5,exam:'行测+申论+面试',deadline:'2026-10-20',match:5,status:'收藏',url:'https://campus.iguopin.com/'},
+{id:'j4',company:'江苏有线',position:'文字文员',province:'江苏',type:'央国企',location:'淮安金湖',major:'汉语言文学',requirement:'本科',count:2,exam:'笔试+面试',deadline:'2026-10-10',match:4,status:'收藏',url:'https://www.jscnnet.com/'},
+{id:'j5',company:'南京师大附中',position:'语文教师',province:'江苏',type:'教师',location:'南京',major:'汉语言文学师范',requirement:'本科+教资',count:3,exam:'试讲+面试',deadline:'2027-03-15',match:5,status:'收藏',url:'http://jyj.nanjing.gov.cn/'},
 {id:'j6',company:'苏州高新区教育局',position:'语文教师',province:'江苏',type:'教师',location:'苏州',major:'汉语言文学师范',requirement:'本科+教资',count:5,exam:'教综+学科+面试',deadline:'2027-03-20',match:5,status:'收藏',url:'http://www.snd.gov.cn'},
 {id:'j7',company:'国考',position:'公务员',province:'江苏',type:'公务员',location:'全国',major:'不限',requirement:'本科',count:'-',exam:'行测+申论',deadline:'2026-10-15',match:3,status:'关注',url:'http://bm.scs.gov.cn'},
-{id:'j8',company:'浙江省烟草',position:'行政管理',province:'浙江',type:'央国企',location:'杭州',major:'不限',requirement:'本科',count:15,exam:'行测+申论',deadline:'2026-10-15',match:4,status:'收藏',url:'https://www.zjycgs.com'},
+{id:'j8',company:'浙江省烟草',position:'行政管理',province:'浙江',type:'央国企',location:'杭州',major:'不限',requirement:'本科',count:15,exam:'行测+申论',deadline:'2026-10-15',match:4,status:'收藏',url:'http://zj.tobacco.gov.cn/'},
 {id:'j9',company:'浙江出版集团',position:'编辑助理',province:'浙江',type:'央国企',location:'杭州',major:'汉语言文学优先',requirement:'本科',count:6,exam:'笔试+面试',deadline:'2026-10-25',match:5,status:'收藏',url:'http://www.zjcb.com'},
-{id:'j10',company:'杭州学军中学',position:'语文教师',province:'浙江',type:'教师',location:'杭州',major:'汉语言文学师范',requirement:'本科+教资',count:2,exam:'试讲+面试',deadline:'2027-03-10',match:5,status:'收藏',url:'http://www.hzxjhs.com'},
+{id:'j10',company:'杭州学军中学',position:'语文教师',province:'浙江',type:'教师',location:'杭州',major:'汉语言文学师范',requirement:'本科+教资',count:2,exam:'试讲+面试',deadline:'2027-03-10',match:5,status:'收藏',url:'http://edu.hangzhou.gov.cn/'},
 {id:'j11',company:'南方电网',position:'行政文秘',province:'广东',type:'央国企',location:'广州',major:'不限',requirement:'本科',count:20,exam:'行测+申论',deadline:'2026-10-15',match:4,status:'收藏',url:'https://zhaopin.csg.cn'},
-{id:'j12',company:'广东旅控集团',position:'宣传策划',province:'广东',type:'央国企',location:'广州',major:'汉语言文学/新闻',requirement:'本科',count:4,exam:'笔试+面试',deadline:'2026-10-20',match:5,status:'收藏',url:'https://www.gdhhotels.com'},
-{id:'j13',company:'深圳外国语学校',position:'语文教师',province:'广东',type:'教师',location:'深圳',major:'汉语言文学师范',requirement:'本科+教资',count:3,exam:'试讲+面试',deadline:'2027-03-15',match:5,status:'收藏',url:'https://www.sfls.net.cn'},
+{id:'j12',company:'广东旅控集团',position:'宣传策划',province:'广东',type:'央国企',location:'广州',major:'汉语言文学/新闻',requirement:'本科',count:4,exam:'笔试+面试',deadline:'2026-10-20',match:5,status:'收藏',url:'https://campus.iguopin.com/'},
+{id:'j13',company:'深圳外国语学校',position:'语文教师',province:'广东',type:'教师',location:'深圳',major:'汉语言文学师范',requirement:'本科+教资',count:3,exam:'试讲+面试',deadline:'2027-03-15',match:5,status:'收藏',url:'http://szeb.sz.gov.cn/'},
 {id:'j14',company:'广西烟草',position:'办事员',province:'广西',type:'央国企',location:'南宁',major:'不限',requirement:'本科',count:10,exam:'行测+申论',deadline:'2026-10-15',match:4,status:'收藏',url:'https://gx.tobacco.gov.cn'},
 {id:'j15',company:'广西出版传媒',position:'文字编辑',province:'广西',type:'央国企',location:'南宁',major:'汉语言文���优先',requirement:'本科',count:5,exam:'笔试+面试',deadline:'2026-10-25',match:5,status:'收藏',url:'http://www.gxpg.com.cn'},
-{id:'j16',company:'中国邮政安徽分公司',position:'管培生/行政岗',province:'安徽',type:'央国企',location:'合肥',major:'汉语言文学可报',requirement:'本科',count:999,exam:'笔试+面试',deadline:'2026-10-31',match:5,status:'收藏',salary:'10000-12500',url:'https://ah.chinapost.com.cn'},
+{id:'j16',company:'中国邮政安徽分公司',position:'管培生/行政岗',province:'安徽',type:'央国企',location:'合肥',major:'汉语言文学可报',requirement:'本科',count:999,exam:'笔试+面试',deadline:'2026-10-31',match:5,status:'收藏',salary:'10000-12500',url:'https://ahyz2026.zhaopin.com/'},
 {id:'j17',company:'淮北矿业集团',position:'行政管理/公务员岗',province:'安徽',type:'央国企',location:'淮北',major:'汉语言文学可报',requirement:'本科',count:15,exam:'简历筛选+面试',deadline:'2026-11-15',match:5,status:'收藏',salary:'国企编制',url:'https://www.hbcoal.com'},
 {id:'j18',company:'安徽海螺水泥(白马山厂)',position:'人事行政',province:'安徽',type:'央国企',location:'芜湖',major:'汉语言文学/文秘/行政管理',requirement:'本科及以上',count:1,exam:'笔试+面试',deadline:'2026-10-20',match:5,status:'收藏',salary:'世界500强',url:'https://www.conch.cn'},
-{id:'j19',company:'安徽中烟工业(蚌埠卷烟厂)',position:'生产操作类(综合管理)',province:'安徽',type:'央国企',location:'蚌埠',major:'汉语言文学(050101)可报',requirement:'本科及以上',count:6,exam:'笔试+面试',deadline:'2026-09-30',match:5,status:'收藏',salary:'烟草编制',url:'https://www.ahycgy.com.cn'},
-{id:'j20',company:'合���八中(运河校区)',position:'语文教师',province:'安徽',type:'教师',location:'合肥',major:'汉语言文学师范',requirement:'本科+教资+二甲',count:11,exam:'学科专业知识+教综+面试',deadline:'2027-06-03',match:5,status:'收藏',salary:'事业编制',url:'http://jyj.hefei.gov.cn'},
-{id:'j21',company:'合肥十中',position:'语文教师',province:'安徽',type:'教师',location:'合肥',major:'汉语言文学师范',requirement:'本科+教资',count:7,exam:'学科+教综+面试',deadline:'2027-06-03',match:5,status:'收藏',salary:'事业编制',url:'http://jyj.hefei.gov.cn'},
-{id:'j22',company:'肥西县县属学校',position:'小学语文A',province:'安徽',type:'教师',location:'合肥肥西',major:'中国语言文学类(0501)',requirement:'本科+学士+教资+二甲',count:4,exam:'省命题笔试+面试',deadline:'2027-03-20',match:5,status:'收藏',salary:'编制管理/服务期5年',url:'http://www.fxjyj.cn'},
-{id:'j23',company:'长丰县县属学校',position:'初中语文B组',province:'安徽',type:'教师',location:'合肥长丰',major:'本科须汉语言文学(050101)',requirement:'本科及以上',count:8,exam:'笔试+面试',deadline:'2027-03-20',match:5,status:'收藏',salary:'事业编制',url:'http://www.cfx.gov.cn'}
+{id:'j19',company:'安徽中烟工业(蚌埠卷烟厂)',position:'生产操作类(综合管理)',province:'安徽',type:'央国企',location:'蚌埠',major:'汉语言文学(050101)可报',requirement:'本科及以上',count:6,exam:'笔试+面试',deadline:'2026-09-30',match:5,status:'收藏',salary:'烟草编制',url:'https://www.tobacco.gov.cn/'},
+{id:'j20',company:'合肥八中(运河校区)',position:'语文教师',province:'安徽',type:'教师',location:'合肥',major:'汉语言文学师范',requirement:'本科+教资+二甲',count:11,exam:'学科专业知识+教综+面试',deadline:'2027-06-03',match:5,status:'收藏',salary:'事业编制',url:'https://hfjszp.hfjyyun.net.cn/jszkw/'},
+{id:'j21',company:'合肥十中',position:'语文教师',province:'安徽',type:'教师',location:'合肥',major:'汉语言文学师范',requirement:'本科+教资',count:7,exam:'学科+教综+面试',deadline:'2027-06-03',match:5,status:'收藏',salary:'事业编制',url:'https://hfjszp.hfjyyun.net.cn/jszkw/'},
+{id:'j22',company:'肥西县县属学校',position:'小学语文A',province:'安徽',type:'教师',location:'合肥肥西',major:'中国语言文学类(0501)',requirement:'本科+学士+教资+二甲',count:4,exam:'省命题笔试+面试',deadline:'2027-03-20',match:5,status:'收藏',salary:'编制管理/服务期5年',url:'http://jyj.hefei.gov.cn/'},
+{id:'j23',company:'长丰县县属学校',position:'初中语文B组',province:'安徽',type:'教师',location:'合肥长丰',major:'本科须汉语言文学(050101)',requirement:'本科及以上',count:8,exam:'笔试+面试',deadline:'2027-03-20',match:5,status:'收藏',salary:'事业编制',url:'http://jyj.hefei.gov.cn/'}]'}
 ];
 function renderJobs(){
 let jobs=DB.get('jobs',DEFAULT_JOBS);
