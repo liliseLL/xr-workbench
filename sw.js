@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xr-workbench-v52';
+const CACHE_NAME = 'xr-workbench-v53';
 const urlsToCache = [
   '.',
   'index.html',
